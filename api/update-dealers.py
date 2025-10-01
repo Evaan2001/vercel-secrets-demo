@@ -4,38 +4,38 @@ from http.server import BaseHTTPRequestHandler
 import os
 import xmlrpc.client
 import json
-import redis
+import traceback
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
-            # Optional: Verify webhook secret for security
-            webhook_secret = os.environ.get('WEBHOOK_SECRET')
-            auth_header = self.headers.get('Authorization')
-            
-            if webhook_secret and auth_header != f'Bearer {webhook_secret}':
-                self.send_json_response({
-                    'error': 'Unauthorized'
-                }, status=401)
-                return
-            
-            # Connect to Vercel KV
+            # Log environment check
             kv_url = os.environ.get('KV_REST_API_URL')
             kv_token = os.environ.get('KV_REST_API_TOKEN')
             
             if not kv_url or not kv_token:
-                self.send_json_response({
-                    'error': 'KV not configured'
-                }, status=500)
+                error_msg = f'KV not configured. URL exists: {bool(kv_url)}, Token exists: {bool(kv_token)}'
+                print(f'ERROR: {error_msg}')
+                self.send_json_response({'error': error_msg}, status=500)
                 return
+            
+            print('Starting cache refresh...')
             
             # Fetch fresh data from Odoo
             dealers_data = self.fetch_from_odoo()
+            print(f'Fetched {dealers_data.get("count", 0)} dealers from Odoo')
             
             # Update cache
-            r = redis.from_url(kv_url, decode_responses=True, 
-                             password=kv_token.split(':')[-1])
-            r.set('dealers_cache', json.dumps(dealers_data))
+            try:
+                from upstash_redis import Redis
+                r = Redis(url=kv_url, token=kv_token)
+                r.set('dealers_cache', json.dumps(dealers_data))
+                print('Successfully updated cache')
+            except ImportError as e:
+                error_msg = f'upstash_redis not installed: {str(e)}'
+                print(f'ERROR: {error_msg}')
+                self.send_json_response({'error': error_msg}, status=500)
+                return
             
             self.send_json_response({
                 'success': True,
@@ -44,8 +44,13 @@ class handler(BaseHTTPRequestHandler):
             })
             
         except Exception as e:
+            error_msg = f'{type(e).__name__}: {str(e)}'
+            error_trace = traceback.format_exc()
+            print(f'ERROR: {error_msg}')
+            print(f'TRACEBACK: {error_trace}')
             self.send_json_response({
-                'error': str(e)
+                'error': error_msg,
+                'traceback': error_trace
             }, status=500)
         
         return
@@ -60,12 +65,14 @@ class handler(BaseHTTPRequestHandler):
         if not username or not api_key:
             raise Exception('ODOO_USERNAME and ODOO_API_KEY not set')
         
-        # Connect to Odoo
+        print('Connecting to Odoo...')
         common = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/common')
         uid = common.authenticate(db, username, api_key, {})
         
         if not uid:
             raise Exception('Odoo authentication failed')
+        
+        print(f'Authenticated as user ID: {uid}')
         
         # Query dealers
         models = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/object')
