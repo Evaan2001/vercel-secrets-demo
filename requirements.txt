@@ -2,4 +2,5 @@
 # Python standard library is sufficient
 
 # For future Odoo API integration, uncomment:
-# requests==2.31.0
+requests==2.31.0
+redis==5.0.1
