@@ -1,69 +1,71 @@
-# Save this file as: api/get-dealers.py
-
 from http.server import BaseHTTPRequestHandler
 import os
 import xmlrpc.client
 import json
-from upstash_redis import Redis
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
-            # Connect to Vercel KV (Redis)
+            # Check if KV variables exist
             kv_url = os.environ.get('KV_REST_API_URL')
             kv_token = os.environ.get('KV_REST_API_TOKEN')
             
+            # For debugging - return this info
             if not kv_url or not kv_token:
-                # Fallback: fetch directly from Odoo if KV not configured
-                dealers_data = self.fetch_from_odoo()
-                self.send_json_response(dealers_data)
+                self.send_json_response({
+                    'error': 'KV variables not found',
+                    'kv_url_exists': bool(kv_url),
+                    'kv_token_exists': bool(kv_token),
+                    'env_vars': list(os.environ.keys())
+                })
                 return
             
-            # Try to get cached data from KV
-            r = Redis(url=kv_url, token=kv_token)
-            
-            cached_data = r.get('dealers_cache')
-            
-            if cached_data:
-                # Serve from cache
-                data = json.loads(cached_data)
-                data['cached'] = True
-                self.send_json_response(data)
-            else:
-                # Cache miss: fetch from Odoo and cache it
-                dealers_data = self.fetch_from_odoo()
+            # Try upstash-redis
+            try:
+                from upstash_redis import Redis
+                r = Redis(url=kv_url, token=kv_token)
                 
-                # Store in cache (no expiration - only webhook updates)
-                r.set('dealers_cache', json.dumps(dealers_data))
+                # Try to get from cache
+                cached_data = r.get('dealers_cache')
                 
-                dealers_data['cached'] = False
-                self.send_json_response(dealers_data)
+                if cached_data:
+                    data = json.loads(cached_data)
+                    data['cached'] = True
+                    self.send_json_response(data)
+                else:
+                    # Fetch from Odoo
+                    dealers_data = self.fetch_from_odoo()
+                    
+                    # Store in cache
+                    r.set('dealers_cache', json.dumps(dealers_data))
+                    
+                    dealers_data['cached'] = False
+                    dealers_data['message'] = 'Stored in cache'
+                    self.send_json_response(dealers_data)
+                    
+            except ImportError as e:
+                self.send_json_response({
+                    'error': 'upstash_redis not installed',
+                    'details': str(e)
+                }, status=500)
             
         except Exception as e:
             self.send_json_response({
-                'error': str(e)
+                'error': str(e),
+                'type': type(e).__name__
             }, status=500)
         
         return
     
     def fetch_from_odoo(self):
-        """Fetch fresh dealer data from Odoo"""
         url = 'https://mid-city-engineering.odoo.com/'
         db = 'mid-city-engineering'
         username = os.environ.get('ODOO_USERNAME')
         api_key = os.environ.get('ODOO_API_KEY')
         
-        if not username or not api_key:
-            raise Exception('ODOO_USERNAME and ODOO_API_KEY not set')
-        
-        # Connect to Odoo
         common = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/common')
         uid = common.authenticate(db, username, api_key, {})
         
-        if not uid:
-            raise Exception('Odoo authentication failed')
-        
-        # Query dealers
         models = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/object')
         required_fields = ['name', 'partner_latitude', 'partner_longitude', 'x_latitude', 
                          'x_longitude', 'street', 'street2', 'city', 'state_id', 
@@ -85,7 +87,5 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
