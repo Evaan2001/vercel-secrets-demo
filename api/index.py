@@ -169,7 +169,11 @@ class handler(BaseHTTPRequestHandler):
                 <h1>Odoo API Demo - Dealers List</h1>
                 
                 <div class="success">
-                    ✓ Connected successfully to Odoo! User ID: {uid}
+                    Connected successfully to Odoo!
+                </div>
+
+                <div class="stats">
+                    User ID: {uid}
                 </div>
                 
                 <div class="stats">
