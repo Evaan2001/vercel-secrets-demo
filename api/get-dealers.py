@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler
 import os
 import xmlrpc.client
 import json
-import redis
+from upstash_redis import Redis
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -20,8 +20,7 @@ class handler(BaseHTTPRequestHandler):
                 return
             
             # Try to get cached data from KV
-            r = redis.from_url(kv_url, decode_responses=True, 
-                             password=kv_token.split(':')[-1])
+            r = Redis(url=kv_url, token=kv_token)
             
             cached_data = r.get('dealers_cache')
             
