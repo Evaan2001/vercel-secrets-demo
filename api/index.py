@@ -166,7 +166,7 @@ class handler(BaseHTTPRequestHandler):
                 </style>
             </head>
             <body>
-                <h1>🔐 Odoo API Demo - Dealers List</h1>
+                <h1>Odoo API Demo - Dealers List</h1>
                 
                 <div class="success">
                     ✓ Connected successfully to Odoo! User ID: {uid}
@@ -175,9 +175,6 @@ class handler(BaseHTTPRequestHandler):
                 <div class="stats">
                     <strong>Number of dealers found:</strong> {len(dealers)}
                 </div>
-                
-                <h2>Dealer Details:</h2>
-                {dealer_cards}
             </body>
         </html>
         '''
